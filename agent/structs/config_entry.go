@@ -152,15 +152,15 @@ func (m MutualTLSMode) validate() error {
 type ServiceConfigEntry struct {
 	Kind                      string
 	Name                      string
-	Protocol                  string
-	Mode                      ProxyMode              `json:",omitempty"`
+	Protocol                  string                 `json:",omitempty" alias:"protocol"`
+	Mode                      ProxyMode              `json:",omitempty" alias:"mode"`
 	TransparentProxy          TransparentProxyConfig `json:",omitempty" alias:"transparent_proxy"`
 	MutualTLSMode             MutualTLSMode          `json:",omitempty" alias:"mutual_tls_mode"`
 	MeshGateway               MeshGatewayConfig      `json:",omitempty" alias:"mesh_gateway"`
-	Expose                    ExposeConfig           `json:",omitempty"`
+	Expose                    ExposeConfig           `json:",omitempty" alias:"expose"`
 	ExternalSNI               string                 `json:",omitempty" alias:"external_sni"`
 	UpstreamConfig            *UpstreamConfiguration `json:",omitempty" alias:"upstream_config"`
-	Destination               *DestinationConfig     `json:",omitempty"`
+	Destination               *DestinationConfig     `json:",omitempty" alias:"destination"`
 	MaxInboundConnections     int                    `json:",omitempty" alias:"max_inbound_connections"`
 	LocalConnectTimeoutMs     int                    `json:",omitempty" alias:"local_connect_timeout_ms"`
 	LocalRequestTimeoutMs     int                    `json:",omitempty" alias:"local_request_timeout_ms"`
@@ -168,7 +168,7 @@ type ServiceConfigEntry struct {
 	RateLimits                *RateLimits            `json:",omitempty" alias:"rate_limits"`
 	EnvoyExtensions           EnvoyExtensions        `json:",omitempty" alias:"envoy_extensions"`
 
-	Meta               map[string]string `json:",omitempty"`
+	Meta               map[string]string `json:",omitempty" alias:"meta"`
 	acl.EnterpriseMeta `hcl:",squash" mapstructure:",squash"`
 	RaftIndex
 }
@@ -349,11 +349,11 @@ func (e *ServiceConfigEntry) GetEnterpriseMeta() *acl.EnterpriseMeta {
 type UpstreamConfiguration struct {
 	// Overrides is a slice of per-service configuration. The name field is
 	// required.
-	Overrides []*UpstreamConfig `json:",omitempty"`
+	Overrides []*UpstreamConfig `json:",omitempty" alias:"overrides"`
 
 	// Defaults contains default configuration for all upstreams of a given
 	// service. The name field must be empty.
-	Defaults *UpstreamConfig `json:",omitempty"`
+	Defaults *UpstreamConfig `json:",omitempty" alias:"defaults"`
 }
 
 func (c *UpstreamConfiguration) Clone() *UpstreamConfiguration {
@@ -381,10 +381,10 @@ func (c *UpstreamConfiguration) Clone() *UpstreamConfiguration {
 // DestinationConfig represents a virtual service, i.e. one that is external to Consul
 type DestinationConfig struct {
 	// Addresses of the endpoint; hostname or IP
-	Addresses []string `json:",omitempty"`
+	Addresses []string `json:",omitempty" alias:"addresses"`
 
 	// Port allowed within this endpoint
-	Port int `json:",omitempty"`
+	Port int `json:",omitempty" alias:"port"`
 }
 
 func IsIP(address string) bool {
@@ -922,11 +922,11 @@ func (r *ServiceConfigRequest) CacheInfo() cache.RequestInfo {
 
 type UpstreamConfig struct {
 	// Name is only accepted within service-defaults.upstreamConfig.overrides .
-	Name string `json:",omitempty"`
+	Name string `json:",omitempty" alias:"name"`
 	// EnterpriseMeta is only accepted within service-defaults.upstreamConfig.overrides .
 	acl.EnterpriseMeta `hcl:",squash" mapstructure:",squash"`
 	// Peer is only accepted within service-defaults.upstreamConfig.overrides .
-	Peer string
+	Peer string `json,alias:"peer"`
 
 	// EnvoyListenerJSON is a complete override ("escape hatch") for the upstream's
 	// listener.
@@ -947,7 +947,7 @@ type UpstreamConfig struct {
 	// "http" and "grpc". Anything else is treated as tcp. The enables protocol
 	// aware features like per-request metrics and connection pooling, tracing,
 	// routing etc.
-	Protocol string `json:",omitempty"`
+	Protocol string `json:",omitempty" alias:"protocol"`
 
 	// ConnectTimeoutMs is the number of milliseconds to timeout making a new
 	// connection to this upstream. Defaults to 5000 (5 seconds) if not set.
@@ -955,7 +955,7 @@ type UpstreamConfig struct {
 
 	// Limits are the set of limits that are applied to the proxy for a specific upstream of a
 	// service instance.
-	Limits *UpstreamLimits `json:",omitempty"`
+	Limits *UpstreamLimits `json:",omitempty" alias:"limits"`
 
 	// PassiveHealthCheck configuration determines how upstream proxy instances will
 	// be monitored for removal from the load balancing pool.
@@ -1136,7 +1136,7 @@ func ParseUpstreamConfig(m map[string]interface{}) (UpstreamConfig, error) {
 type PassiveHealthCheck struct {
 	// Interval between health check analysis sweeps. Each sweep may remove
 	// hosts or return hosts to the pool.
-	Interval time.Duration `json:",omitempty"`
+	Interval time.Duration `json:",omitempty" alias:"interval"`
 
 	// MaxFailures is the count of consecutive failures that results in a host
 	// being removed from the pool.

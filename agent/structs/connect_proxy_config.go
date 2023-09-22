@@ -75,7 +75,7 @@ const (
 // configuration items all over the place
 type MeshGatewayConfig struct {
 	// The Mesh Gateway routing mode
-	Mode MeshGatewayMode `json:",omitempty"`
+	Mode MeshGatewayMode `json:",omitempty" alias:"mode"`
 }
 
 func (c *MeshGatewayConfig) IsZero() bool {
