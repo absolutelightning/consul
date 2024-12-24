@@ -117,10 +117,10 @@ func catalogInsertNode(tx WriteTxn, node *structs.Node) error {
 	// ensure that the Partition is always clear within the state store in CE
 	node.Partition = ""
 
-	// Insert the node and update the index.
-	if err := tx.Insert(tableNodes, node); err != nil {
-		return fmt.Errorf("failed inserting node: %s", err)
-	}
+	//// Insert the node and update the index.
+	//if err := tx.Insert(tableNodes, node); err != nil {
+	//	return fmt.Errorf("failed inserting node: %s", err)
+	//}
 
 	if err := catalogUpdateNodesIndexes(tx, node.ModifyIndex, node.GetEnterpriseMeta(), node.PeerName); err != nil {
 		return fmt.Errorf("failed updating nodes indexes: %w", err)
@@ -141,9 +141,9 @@ func catalogInsertNode(tx WriteTxn, node *structs.Node) error {
 
 func catalogInsertService(tx WriteTxn, svc *structs.ServiceNode) error {
 	// Insert the service and update the index
-	if err := tx.Insert(tableServices, svc); err != nil {
-		return fmt.Errorf("failed inserting service: %s", err)
-	}
+	//if err := tx.Insert(tableServices, svc); err != nil {
+	//	return fmt.Errorf("failed inserting service: %s", err)
+	//}
 
 	if err := catalogUpdateServicesIndexes(tx, svc.ModifyIndex, &svc.EnterpriseMeta, svc.PeerName); err != nil {
 		return fmt.Errorf("failed updating services indexes: %w", err)

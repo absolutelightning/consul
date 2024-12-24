@@ -1,8 +1,8 @@
 module github.com/hashicorp/consul
 
-go 1.22
+go 1.22.4
 
-toolchain go1.22.5
+toolchain go1.23.4
 
 replace (
 	github.com/hashicorp/consul/api => ./api
@@ -15,6 +15,11 @@ replace (
 exclude (
 	github.com/hashicorp/go-msgpack v1.1.5 // has breaking changes and must be avoided
 	github.com/hashicorp/go-msgpack v1.1.6 // contains retractions but same as v1.1.5
+)
+
+replace (
+	github.com/hashicorp/go-immutable-radix => ../go-immutable-radix
+	github.com/hashicorp/go-memdb => ../go-memdb
 )
 
 require (

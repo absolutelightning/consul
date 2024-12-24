@@ -115,6 +115,9 @@ type Store struct {
 
 	// lockDelay holds expiration times for locks associated with keys.
 	lockDelay *Delay
+
+	nodes []*structs.Node
+	svcs  []*structs.ServiceNode
 }
 
 // Snapshot is used to provide a point-in-time snapshot. It
@@ -130,6 +133,7 @@ type Snapshot struct {
 type Restore struct {
 	store *Store
 	tx    *txn
+	reqs  []*structs.RegisterRequestWithIndex
 }
 
 // sessionCheck is used to create a many-to-one table such that
@@ -238,7 +242,7 @@ func (s *Snapshot) Close() {
 // transaction.
 func (s *Store) Restore() *Restore {
 	tx := s.db.WriteTxnRestore()
-	return &Restore{s, tx}
+	return &Restore{s, tx, make([]*structs.RegisterRequestWithIndex, 0)}
 }
 
 // Abort abandons the changes made by a restore. This or Commit should always be
