@@ -142,32 +142,32 @@ func (s *Restore) BulkRestoreRegistration() error {
 		return err
 	}
 
-	//for _, req := range s.reqs {
-	//	err := s.store.ensureServiceRegistrationTxn(s.tx, req.Index, true, req.Req, true)
-	//	if err != nil {
-	//		return err
-	//	}
-	//}
-	//fmt.Println("superman", len(s.store.svcs))
-	//// bulk insert services
-	//serviceInterface := make([]interface{}, 0, len(s.store.svcs))
-	//for _, svc := range s.store.svcs {
-	//	serviceInterface = append(serviceInterface, svc)
-	//}
-	//err = s.tx.BulkInsert(tableServices, serviceInterface)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//for _, req := range s.reqs {
-	//	// Add the checks, if any.
-	//	if req.Req.Check != nil {
-	//		s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, req.Req.Check)
-	//	}
-	//	for _, check := range req.Req.Checks {
-	//		s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, check)
-	//	}
-	//}
+	for _, req := range s.reqs {
+		err := s.store.ensureServiceRegistrationTxn(s.tx, req.Index, true, req.Req, true)
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Println("superman", len(s.store.svcs))
+	// bulk insert services
+	serviceInterface := make([]interface{}, 0, len(s.store.svcs))
+	for _, svc := range s.store.svcs {
+		serviceInterface = append(serviceInterface, svc)
+	}
+	err = s.tx.BulkInsert(tableServices, serviceInterface)
+	if err != nil {
+		return err
+	}
+
+	for _, req := range s.reqs {
+		// Add the checks, if any.
+		if req.Req.Check != nil {
+			s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, req.Req.Check)
+		}
+		for _, check := range req.Req.Checks {
+			s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, check)
+		}
+	}
 
 	s.reqs = nil
 	s.store.nodes = nil
