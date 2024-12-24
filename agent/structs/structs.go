@@ -475,6 +475,11 @@ type QueryMeta struct {
 	ResultsFilteredByACLs bool
 }
 
+type RegisterRequestWithIndex struct {
+	Req   *RegisterRequest
+	Index uint64
+}
+
 // RegisterRequest is used for the Catalog.Register endpoint
 // to register a node as providing a service. If no service
 // is provided, the node is registered.

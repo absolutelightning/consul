@@ -116,11 +116,77 @@ func (s *Snapshot) FreeVirtualIPs() (memdb.ResultIterator, error) {
 	return iter, nil
 }
 
+func (s *Restore) BulkRestoreRegistration() error {
+	for _, req := range s.reqs {
+		if err := validateRegisterRequestPeerNamesTxn(s.tx, req.Req, true); err != nil {
+		}
+		if _, err := validateRegisterRequestTxn(s.tx, req.Req, true); err != nil {
+		}
+	}
+
+	for _, req := range s.reqs {
+		err := s.store.ensureNodeRegistrationTxn(s.tx, req.Index, true, req.Req, true)
+		if err != nil {
+			return err
+		}
+	}
+	// bulk insert nodes
+	// create node interface array
+	nodesInterface := make([]interface{}, 0, len(s.store.nodes))
+	for _, node := range s.store.nodes {
+		nodesInterface = append(nodesInterface, node)
+	}
+	err := s.tx.BulkInsert(tableNodes, nodesInterface)
+	if err != nil {
+		fmt.Println("error inserting nodes")
+		return err
+	}
+
+	//for _, req := range s.reqs {
+	//	err := s.store.ensureServiceRegistrationTxn(s.tx, req.Index, true, req.Req, true)
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
+	//fmt.Println("superman", len(s.store.svcs))
+	//// bulk insert services
+	//serviceInterface := make([]interface{}, 0, len(s.store.svcs))
+	//for _, svc := range s.store.svcs {
+	//	serviceInterface = append(serviceInterface, svc)
+	//}
+	//err = s.tx.BulkInsert(tableServices, serviceInterface)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//for _, req := range s.reqs {
+	//	// Add the checks, if any.
+	//	if req.Req.Check != nil {
+	//		s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, req.Req.Check)
+	//	}
+	//	for _, check := range req.Req.Checks {
+	//		s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, check)
+	//	}
+	//}
+
+	s.reqs = nil
+	s.store.nodes = nil
+	s.store.svcs = nil
+	return nil
+}
+
 // Registration is used to make sure a node, service, and check registration is
 // performed within a single transaction to avoid race conditions on state
 // updates.
 func (s *Restore) Registration(idx uint64, req *structs.RegisterRequest) error {
-	return s.store.ensureRegistrationTxn(s.tx, idx, true, req, true)
+	if s.reqs == nil {
+		s.reqs = make([]*structs.RegisterRequestWithIndex, 0)
+	}
+	s.reqs = append(s.reqs, &structs.RegisterRequestWithIndex{
+		Req:   req,
+		Index: idx,
+	})
+	return nil
 }
 
 func (s *Restore) ServiceVirtualIP(req ServiceVirtualIP) error {
@@ -263,6 +329,73 @@ func (s *Store) ensureRegistrationTxn(tx WriteTxn, idx uint64, preserveIndexes b
 		err := s.ensureCheckIfNodeMatches(tx, idx, preserveIndexes, req.Node, req.PartitionOrDefault(), req.PeerName, check)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) ensureNodeRegistrationTxn(tx WriteTxn, idx uint64, preserveIndexes bool, req *structs.RegisterRequest, restore bool) error {
+	// Create a node structure.
+	node := &structs.Node{
+		ID:              req.ID,
+		Node:            req.Node,
+		Address:         req.Address,
+		Datacenter:      req.Datacenter,
+		Partition:       req.PartitionOrDefault(),
+		TaggedAddresses: req.TaggedAddresses,
+		Meta:            req.NodeMeta,
+		PeerName:        req.PeerName,
+		Locality:        req.Locality,
+	}
+	if preserveIndexes {
+		node.CreateIndex = req.CreateIndex
+		node.ModifyIndex = req.ModifyIndex
+	}
+
+	// Since this gets called for all node operations (service and check
+	// updates) and churn on the node itself is basically none after the
+	// node updates itself the first time, it's worth seeing if we need to
+	// modify the node at all so we prevent watch churn and useless writes
+	// and modify index bumps on the node.
+	{
+		existing, err := tx.First(tableNodes, indexID, Query{
+			Value:          node.Node,
+			EnterpriseMeta: *node.GetEnterpriseMeta(),
+			PeerName:       node.PeerName,
+		})
+		if err != nil {
+			return fmt.Errorf("node lookup failed: %s", err)
+		}
+		if existing == nil || req.ChangesNode(existing.(*structs.Node)) {
+			if err := s.ensureNodeTxn(tx, idx, preserveIndexes, node); err != nil {
+				return fmt.Errorf("failed inserting node: %s", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) ensureServiceRegistrationTxn(tx WriteTxn, idx uint64, preserveIndexes bool, req *structs.RegisterRequest, restore bool) error {
+	// Add the service, if any. We perform a similar check as we do for the
+	// node info above to make sure we actually need to update the service
+	// definition in order to prevent useless churn if nothing has changed.
+	if req.Service != nil {
+		existing, err := tx.First(tableServices, indexID, NodeServiceQuery{
+			EnterpriseMeta: req.Service.EnterpriseMeta,
+			Node:           req.Node,
+			Service:        req.Service.ID,
+			PeerName:       req.PeerName,
+		})
+		if err != nil {
+			return fmt.Errorf("failed service lookup: %s", err)
+		}
+		if existing == nil || !(existing.(*structs.ServiceNode).ToNodeService()).IsSame(req.Service) {
+			if err := ensureServiceTxnWithStore(s, tx, idx, req.Node, preserveIndexes, req.Service); err != nil {
+				return fmt.Errorf("failed inserting service: %s", err)
+
+			}
 		}
 	}
 
@@ -488,7 +621,12 @@ func (s *Store) ensureNodeTxn(tx WriteTxn, idx uint64, preserveIndexes bool, nod
 	}
 
 	// Insert the node and update the index.
-	return catalogInsertNode(tx, node)
+	res := catalogInsertNode(tx, node)
+	if s.nodes == nil {
+		s.nodes = make([]*structs.Node, 0)
+	}
+	s.nodes = append(s.nodes, node)
+	return res
 }
 
 // GetNode is used to retrieve a node registration by node name ID.
@@ -994,8 +1132,155 @@ func ensureServiceTxn(tx WriteTxn, idx uint64, node string, preserveIndexes bool
 		}
 	}
 
-	// Insert the service and update the index
 	return catalogInsertService(tx, entry)
+}
+
+// ensureServiceTxn is used to upsert a service registration within an
+// existing memdb transaction.
+func ensureServiceTxnWithStore(s *Store, tx WriteTxn, idx uint64, node string, preserveIndexes bool, svc *structs.NodeService) error {
+	// Check for existing service
+	existing, err := tx.First(tableServices, indexID, NodeServiceQuery{
+		EnterpriseMeta: svc.EnterpriseMeta,
+		Node:           node,
+		Service:        svc.ID,
+		PeerName:       svc.PeerName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed service lookup: %s", err)
+	}
+
+	if err = structs.ValidateServiceMetadata(svc.Kind, svc.Meta, false); err != nil {
+		return fmt.Errorf("Invalid Service Meta for node %s and serviceID %s: %v", node, svc.ID, err)
+	}
+
+	if svc.PeerName == "" {
+		// Do not associate non-typical services with gateways or consul services
+		if svc.Kind == structs.ServiceKindTypical && svc.Service != "consul" {
+			// Check if this service is covered by a gateway's wildcard specifier, we force the service kind to a gateway-service here as that take precedence
+			sn := structs.NewServiceName(svc.Service, &svc.EnterpriseMeta)
+			if err = checkGatewayWildcardsAndUpdate(tx, idx, &sn, svc, structs.GatewayServiceKindService); err != nil {
+				return fmt.Errorf("failed updating gateway mapping: %s", err)
+			}
+			if err = checkGatewayAndUpdate(tx, idx, &sn, structs.GatewayServiceKindService); err != nil {
+				return fmt.Errorf("failed updating gateway mapping: %s", err)
+			}
+		}
+		// Only upsert KindServiceName if service is local
+		if err := upsertKindServiceName(tx, idx, svc.Kind, svc.CompoundServiceName()); err != nil {
+			return fmt.Errorf("failed to persist service name: %v", err)
+		}
+	}
+
+	// Update upstream/downstream mappings if it's a connect service
+	if svc.Kind == structs.ServiceKindConnectProxy || svc.Connect.Native {
+		if err = updateMeshTopology(tx, idx, node, svc, existing); err != nil {
+			return fmt.Errorf("failed updating upstream/downstream association")
+		}
+
+		service := svc.Service
+		if svc.Kind == structs.ServiceKindConnectProxy {
+			service = svc.Proxy.DestinationServiceName
+		}
+		sn := structs.ServiceName{Name: service, EnterpriseMeta: svc.EnterpriseMeta}
+		if err = checkGatewayWildcardsAndUpdate(tx, idx, &sn, svc, structs.GatewayServiceKindService); err != nil {
+			return fmt.Errorf("failed updating gateway mapping: %s", err)
+		}
+
+		if svc.PeerName == "" && sn.Name != "" {
+			if err := upsertKindServiceName(tx, idx, structs.ServiceKindConnectEnabled, sn); err != nil {
+				return fmt.Errorf("failed to persist service name as connect-enabled: %v", err)
+			}
+		}
+
+		// Update the virtual IP for the service
+		supported, err := virtualIPsSupported(tx, nil)
+		if err != nil {
+			return err
+		}
+		if supported && sn.Name != "" {
+			psn := structs.PeeredServiceName{Peer: svc.PeerName, ServiceName: sn}
+			vip, err := assignServiceVirtualIP(tx, idx, psn)
+			if err != nil {
+				return fmt.Errorf("failed updating virtual IP: %s", err)
+			}
+			if svc.TaggedAddresses == nil {
+				svc.TaggedAddresses = make(map[string]structs.ServiceAddress)
+			}
+			svc.TaggedAddresses[structs.TaggedAddressVirtualIP] = structs.ServiceAddress{Address: vip, Port: svc.Port}
+		}
+	}
+
+	if svc.PeerName == "" {
+		// If there's a terminating gateway config entry for this service, populate the tagged addresses
+		// with virtual IP mappings.
+		termGatewayVIPsSupported, err := terminatingGatewayVirtualIPsSupported(tx, nil)
+		if err != nil {
+			return err
+		}
+		if termGatewayVIPsSupported && svc.Kind == structs.ServiceKindTerminatingGateway {
+			_, conf, err := configEntryTxn(tx, nil, structs.TerminatingGateway, svc.Service, &svc.EnterpriseMeta)
+			if err != nil {
+				return fmt.Errorf("failed to retrieve terminating gateway config: %s", err)
+			}
+			if conf != nil {
+				termGatewayConf := conf.(*structs.TerminatingGatewayConfigEntry)
+				addrs, err := getTermGatewayVirtualIPs(tx, idx, termGatewayConf.Services)
+				if err != nil {
+					return err
+				}
+				if svc.TaggedAddresses == nil {
+					svc.TaggedAddresses = make(map[string]structs.ServiceAddress)
+				}
+				for key, addr := range addrs {
+					svc.TaggedAddresses[key] = addr
+				}
+			}
+		}
+	}
+
+	// Create the service node entry and populate the indexes. Note that
+	// conversion doesn't populate any of the node-specific information.
+	// That's always populated when we read from the state store.
+	entry := svc.ToServiceNode(node)
+	// Get the node
+	n, err := tx.First(tableNodes, indexID, Query{
+		Value:          node,
+		EnterpriseMeta: svc.EnterpriseMeta,
+		PeerName:       svc.PeerName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed node lookup: %s", err)
+	}
+	if n == nil {
+		return ErrMissingNode
+	}
+	if existing != nil {
+		serviceNode := existing.(*structs.ServiceNode)
+		entry.CreateIndex = serviceNode.CreateIndex
+		entry.ModifyIndex = serviceNode.ModifyIndex
+		// We cannot return here because: we want to keep existing behavior (ex: failed node lookup -> ErrMissingNode)
+		// It might be modified in future, but it requires changing many unit tests
+		// Enforcing saving the entry also ensures that if we add default values in .ToServiceNode()
+		// those values will be saved even if node is not really modified for a while.
+		if entry.IsSameService(serviceNode) {
+			return nil
+		}
+	}
+	if !preserveIndexes {
+		entry.ModifyIndex = idx
+		if existing == nil {
+			entry.CreateIndex = idx
+		}
+	}
+
+	// Insert the service and update the index
+	// Insert the service and update the index
+	res := catalogInsertService(tx, entry)
+	if s.svcs == nil {
+		s.svcs = make([]*structs.ServiceNode, 0)
+	}
+	s.svcs = append(s.svcs, entry)
+	return res
 }
 
 // assignServiceVirtualIP assigns a virtual IP to the target service and updates

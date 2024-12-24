@@ -282,6 +282,10 @@ func (c *FSM) Restore(old io.ReadCloser) error {
 	if err := ReadSnapshot(old, handler); err != nil {
 		return err
 	}
+	err = restore.BulkRestoreRegistration()
+	if err != nil {
+		return err
+	}
 
 	if err := restore.Commit(); err != nil {
 		return err
