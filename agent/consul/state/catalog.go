@@ -162,10 +162,16 @@ func (s *Restore) BulkRestoreRegistration() error {
 	for _, req := range s.reqs {
 		// Add the checks, if any.
 		if req.Req.Check != nil {
-			s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, req.Req.Check)
+			err = s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, req.Req.Check)
+			if err != nil {
+				return err
+			}
 		}
 		for _, check := range req.Req.Checks {
-			s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, check)
+			err = s.store.ensureCheckIfNodeMatches(s.tx, req.Index, true, req.Req.Node, req.Req.PartitionOrDefault(), req.Req.PeerName, check)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
